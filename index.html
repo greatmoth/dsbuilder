@@ -66,7 +66,7 @@ async function init() {
            2. 외부 주소: 'https://example.com/data.csv' (CORS 설정 필요)
            3. 깃허브 등: 'https://raw.githubusercontent.com/user/repo/main/mondb.csv'
         */
-        const response = await fetch('https://github.com/greatmoth/dsbuilder/blob/main/mondb.csv'); 
+        const response = await fetch('mondb.csv'); 
         if (!response.ok) throw new Error("파일을 찾을 수 없습니다.");
         
         const csvText = await response.text();
