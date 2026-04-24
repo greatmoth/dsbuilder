@@ -63,7 +63,8 @@ const UI = {
         textDim: "#aaaaaa",
         trait: "#f1c40f",
         headerBg: "#1f1f1f",
-        locked: "#555" 
+        locked: "#555",
+        traitBg: "#1a1a1a"
     }
 };
 
@@ -179,13 +180,57 @@ function drawSlot(slot, idx, x, y) {
         if (skill.name) {
             const skillInfo = activePool.find(p => p.skillName === skill.name);
             if (skillInfo) {
+                // 특성 묶음 박스 배경 그리기 (미리 계산)
+                const traitsData = [];
+                let totalTraitsHeight = 0;
                 for(let tPos = 0; tPos < 3; tPos++) {
                     const tIdx = skill.traits[tPos];
-                    // tIdx가 0일 수도 있으므로 엄격한 체크
                     const tName = (tIdx !== undefined && tIdx !== null) ? skillInfo.traits[tIdx] : "특성 선택";
-                    const tHeight = drawWrappedButton(x + 15, currentY, UI.slotWidth - 30, tName, "#1a1a1a", 11, false, true, true);
-                    currentY += tHeight + 4;
+                    const lines = wrapText(tName, UI.slotWidth - 55, 11);
+                    const h = Math.max(28, lines.length * 15 + 16);
+                    traitsData.push({ tName, h, lines });
+                    totalTraitsHeight += h;
                 }
+
+                // 묶음 배경
+                ctx.fillStyle = UI.colors.traitBg;
+                ctx.beginPath();
+                ctx.roundRect(x + 15, currentY, UI.slotWidth - 30, totalTraitsHeight, 6);
+                ctx.fill();
+                ctx.strokeStyle = "#333";
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // 개별 특성 텍스트 및 구분선
+                let traitY = currentY;
+                traitsData.forEach((td, tdIdx) => {
+                    // 텍스트 출력
+                    ctx.fillStyle = (td.tName === "특성 선택") ? UI.colors.textDim : UI.colors.trait;
+                    ctx.font = "11px Arial";
+                    td.lines.forEach((line, li) => {
+                        ctx.fillText(line, x + 25, traitY + 8 + 11 + (li * 15) - 2);
+                    });
+
+                    // 화살표
+                    ctx.beginPath();
+                    ctx.moveTo(x + UI.slotWidth - 30, traitY + td.h/2 - 2);
+                    ctx.lineTo(x + UI.slotWidth - 25, traitY + td.h/2 + 3);
+                    ctx.lineTo(x + UI.slotWidth - 20, traitY + td.h/2 - 2);
+                    ctx.strokeStyle = (td.tName === "특성 선택") ? UI.colors.textDim : UI.colors.trait;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    traitY += td.h;
+                    // 구분선 (마지막 제외)
+                    if(tdIdx < 2) {
+                        ctx.beginPath();
+                        ctx.moveTo(x + 20, traitY);
+                        ctx.lineTo(x + UI.slotWidth - 20, traitY);
+                        ctx.strokeStyle = "#2a2a2a";
+                        ctx.stroke();
+                    }
+                });
+                currentY += totalTraitsHeight;
             }
         }
         currentY += 8;
@@ -347,13 +392,13 @@ canvas.addEventListener('click', (e) => {
                         for(let tPos = 0; tPos < 3; tPos++) {
                             const tIdx = skill.traits[tPos];
                             const tText = (tIdx !== undefined && tIdx !== null) ? skillInfo.traits[tIdx] : "특성 선택";
-                            const tLines = wrapText(tText, UI.slotWidth - 45, 11);
+                            const tLines = wrapText(tText, UI.slotWidth - 55, 11);
                             const tHeight = Math.max(28, tLines.length * 15 + 16);
                             if (mx > x + 15 && mx < x + UI.slotWidth - 15 && my > currentY && my < currentY + tHeight) {
                                 const available = skillInfo.traits.map((t, tid) => ({ name: t, id: tid }));
                                 activeDropdown = { slotIdx: i, type: 'activeTrait', items: available, x: x + 15, y: currentY + tHeight, width: UI.slotWidth - 30, skillIdx: sIdx, traitSlotIdx: tPos };
                             }
-                            currentY += tHeight + 4;
+                            currentY += tHeight;
                         }
                     }
                 }
@@ -404,7 +449,6 @@ function handleDropdownSelect(slotIdx, type, value, skillIdx, traitSlotIdx) {
     } else if (type === 'passive') {
         slots[slotIdx].passives[skillIdx] = { name: value, trait: null };
     } else if (type === 'activeTrait') {
-        // value.id가 0인 경우를 대비해 직접 할당
         slots[slotIdx].actives[skillIdx].traits[traitSlotIdx] = value.id;
     } else if (type === 'passiveTrait') {
         slots[slotIdx].passives[skillIdx].trait = value.id;
