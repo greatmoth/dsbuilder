@@ -5,23 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monster Skill DB Builder</title>
     <style>
-        body { background-color: #121212; color: #e0e0e0; font-family: 'Pretendard', sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; }
-        #header { width: 100%; padding: 20px; background: #1f1f1f; display: flex; justify-content: center; gap: 10px; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
-        button { padding: 10px 20px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        body { background-color: #121212; color: #e0e0e0; font-family: 'Pretendard', sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; overflow-x: hidden; }
+        #header { width: 100%; padding: 15px; background: #1f1f1f; display: flex; justify-content: center; gap: 10px; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
+        button { padding: 8px 16px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; }
         .btn-save { background: #4a90e2; color: white; }
         .btn-load { background: #43a047; color: white; }
         .btn-reset { background: #e53935; color: white; }
         button:hover { opacity: 0.8; transform: translateY(-1px); }
-        canvas { background: #181818; box-shadow: 0 4px 20px rgba(0,0,0,0.5); margin: 20px 0; cursor: pointer; border-radius: 12px; }
-        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 100; font-size: 1.5rem; }
+        canvas { background: #181818; box-shadow: 0 4px 20px rgba(0,0,0,0.5); margin: 20px 0; cursor: default; border-radius: 12px; }
+        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 100; font-size: 1.2rem; }
     </style>
 </head>
 <body>
 
-<div id="loading" class="loading-overlay">CSV 데이터를 불러오는 중...</div>
+<div id="loading" class="loading-overlay">데이터를 분석하고 UI를 구성 중입니다...</div>
 
 <div id="header">
-    <button class="btn-save" onclick="saveData()">로컬 스토리지에 저장</button>
+    <button class="btn-save" onclick="saveData()">설정 저장</button>
     <button class="btn-load" onclick="loadData()">불러오기</button>
     <button class="btn-reset" onclick="resetAll()">초기화</button>
 </div>
@@ -33,19 +33,29 @@ const canvas = document.getElementById('appCanvas');
 const ctx = canvas.getContext('2d');
 const loading = document.getElementById('loading');
 
-// --- 환경 변수 및 설정 ---
+// --- 데이터 및 상태 ---
 let monsterData = []; 
-let selections = []; // 유저가 선택한 몬스터/스킬 정보
+let monstersList = []; // 유니크 몬스터 이름 목록
+// 5개의 슬롯 상태 관리
+let slots = Array.from({ length: 5 }, () => ({
+    name: null,
+    actives: [], // { name, traits: [] }
+    passives: [] // { name, trait: null }
+}));
+
+// 드롭다운 상태
+let activeDropdown = null; // { slotIdx, type, items, x, y, width, skillIdx }
 
 const UI = {
-    canvasWidth: 1200,
-    canvasHeight: 900,
-    sidebarWidth: 220,
-    cardWidth: 185,
+    canvasWidth: 1300,
+    canvasHeight: 950,
+    slotWidth: 240,
     margin: 15,
     colors: {
         bg: "#181818",
-        card: "#252525",
+        slot: "#252525",
+        dropdown: "#333333",
+        dropdownHover: "#444444",
         primary: "#4a90e2",
         active: "#4caf50",
         passive: "#ff9800",
@@ -55,258 +65,343 @@ const UI = {
     }
 };
 
-// --- 초기화 함수 ---
 async function init() {
     canvas.width = UI.canvasWidth;
     canvas.height = UI.canvasHeight;
 
     try {
-        /* [CSV 파일 주소 넣는 법]
-           1. 동일 서버 내 파일: 'mondb.csv'
-           2. 외부 주소: 'https://example.com/data.csv' (CORS 설정 필요)
-           3. 깃허브 등: 'https://raw.githubusercontent.com/user/repo/main/mondb.csv'
-        */
         const response = await fetch('mondb.csv'); 
-        if (!response.ok) throw new Error("파일을 찾을 수 없습니다.");
+        if (!response.ok) throw new Error("파일 로드 실패");
         
         const csvText = await response.text();
         parseCSV(csvText);
         
+        monstersList = [...new Set(monsterData.map(d => d.monsterName))];
         loading.style.display = 'none';
         render();
     } catch (err) {
-        console.error(err);
-        loading.innerText = "데이터 로드 실패: " + err.message;
+        loading.innerText = "Error: " + err.message;
     }
 }
 
-// --- CSV 파서 ---
 function parseCSV(text) {
     const lines = text.split(/\r?\n/);
     lines.forEach(line => {
         const row = line.split(',');
         if (row.length < 3) return;
-
-        const monsterName = row[0].trim();
-        const type = row[1].trim(); // 액티브 or 패시브
-        const skillName = row[2].trim();
         const traits = row.slice(3).map(t => t.trim()).filter(t => t !== "");
-
         monsterData.push({
-            monsterName,
-            type,
-            skillName,
+            monsterName: row[0].trim(),
+            type: row[1].trim(),
+            skillName: row[2].trim(),
             traits
         });
     });
 }
 
-// --- 그리기 함수 ---
 function render() {
     ctx.fillStyle = UI.colors.bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // 1. 좌측 몬스터 목록
-    drawSidebar();
+    const startX = (canvas.width - (UI.slotWidth * 5 + UI.margin * 4)) / 2;
 
-    // 2. 우측 선택된 몬스터 상세
-    drawSelectedMonsters();
-}
-
-function drawSidebar() {
-    ctx.fillStyle = "#1f1f1f";
-    ctx.fillRect(0, 0, UI.sidebarWidth, canvas.height);
-    
-    ctx.fillStyle = UI.colors.text;
-    ctx.font = "bold 16px Arial";
-    ctx.fillText("몬스터 도감 (최대 5개)", 20, 40);
-
-    const uniqueMonsters = [...new Set(monsterData.map(d => d.monsterName))];
-    uniqueMonsters.forEach((m, i) => {
-        const y = 70 + (i * 45);
-        const isSelected = selections.some(s => s.name === m);
-
-        ctx.fillStyle = isSelected ? UI.colors.primary : "#333";
-        ctx.beginPath();
-        ctx.roundRect(15, y, UI.sidebarWidth - 30, 35, 6);
-        ctx.fill();
-
-        ctx.fillStyle = UI.colors.text;
-        ctx.font = "14px Arial";
-        ctx.fillText(m, 30, y + 22);
+    slots.forEach((slot, i) => {
+        const x = startX + i * (UI.slotWidth + UI.margin);
+        drawSlot(slot, i, x, 30);
     });
+
+    if (activeDropdown) {
+        drawDropdown();
+    }
 }
 
-function drawSelectedMonsters() {
-    selections.forEach((sel, idx) => {
-        const x = UI.sidebarWidth + UI.margin + (idx * (UI.cardWidth + UI.margin));
-        let y = 30;
+function drawSlot(slot, idx, x, y) {
+    // 슬롯 배경
+    ctx.fillStyle = UI.colors.slot;
+    ctx.beginPath();
+    ctx.roundRect(x, y, UI.slotWidth, canvas.height - 60, 12);
+    ctx.fill();
 
-        // 배경 카드
-        ctx.fillStyle = UI.colors.card;
-        ctx.beginPath();
-        ctx.roundRect(x, y, UI.cardWidth, canvas.height - 60, 10);
-        ctx.fill();
+    // 슬롯 번호
+    ctx.fillStyle = "#444";
+    ctx.font = "bold 40px Arial";
+    ctx.fillText(idx + 1, x + 15, y + 45);
 
-        // 몬스터 이름
-        ctx.fillStyle = UI.colors.primary;
-        ctx.font = "bold 18px Arial";
-        ctx.fillText(sel.name, x + 15, y + 30);
-        y += 50;
+    // 몬스터 선택 드롭다운 버튼
+    drawDropdownButton(x + 10, y + 60, UI.slotWidth - 20, 40, slot.name || "몬스터 선택", UI.colors.primary);
 
-        // 해당 몬스터의 전체 스킬 정보
-        const allSkills = monsterData.filter(d => d.monsterName === sel.name);
+    if (slot.name) {
+        let currentY = y + 120;
+        const monsterSkills = monsterData.filter(d => d.monsterName === slot.name);
+        const activePool = monsterSkills.filter(s => s.type === '액티브');
+        const passivePool = monsterSkills.filter(s => s.type === '패시브');
 
-        allSkills.forEach(skill => {
-            const isSelected = (skill.type === '액티브') 
-                ? sel.actives.some(a => a.name === skill.skillName)
-                : sel.passives.some(p => p.name === skill.skillName);
+        // 액티브 스킬 섹션 (3개)
+        ctx.fillStyle = UI.colors.active;
+        ctx.font = "bold 14px Arial";
+        ctx.fillText("액티브 스킬 (최대 3)", x + 15, currentY);
+        currentY += 15;
 
-            // 스킬 버튼
-            ctx.fillStyle = isSelected ? (skill.type === '액티브' ? UI.colors.active : UI.colors.passive) : "#444";
-            ctx.beginPath();
-            ctx.roundRect(x + 10, y, UI.cardWidth - 20, 28, 4);
-            ctx.fill();
-
-            ctx.fillStyle = "#fff";
-            ctx.font = "12px Arial";
-            ctx.fillText(`[${skill.type[0]}] ${skill.skillName}`, x + 15, y + 18);
-            y += 35;
-
-            // 특성 리스트 (스킬이 선택된 상태일 때만)
-            if (isSelected) {
-                skill.traits.forEach((trait, tIdx) => {
-                    let isPicked = false;
-                    if(skill.type === '액티브') {
-                        const sObj = sel.actives.find(a => a.name === skill.skillName);
-                        isPicked = sObj.traits.includes(tIdx);
-                    } else {
-                        const sObj = sel.passives.find(p => p.name === skill.skillName);
-                        isPicked = sObj.trait === tIdx;
-                    }
-
-                    ctx.fillStyle = isPicked ? UI.colors.traitSelected : "#222";
-                    ctx.beginPath();
-                    ctx.roundRect(x + 15, y, UI.cardWidth - 30, 22, 3);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = isPicked ? "#000" : "#888";
-                    ctx.font = "10px Arial";
-                    const shortTrait = trait.length > 18 ? trait.substring(0, 16) + ".." : trait;
-                    ctx.fillText(shortTrait, x + 20, y + 15);
-                    y += 26;
-                });
-                y += 10;
+        for (let sIdx = 0; sIdx < 3; sIdx++) {
+            const skill = slot.actives[sIdx];
+            drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill ? skill.name : "스킬 선택", "#333", true);
+            
+            if (skill) {
+                currentY += 38;
+                const skillInfo = activePool.find(p => p.skillName === skill.name);
+                if (skillInfo) {
+                    skillInfo.traits.forEach((t, tIdx) => {
+                        const isPicked = skill.traits.includes(tIdx);
+                        drawTraitButton(x + 15, currentY, UI.slotWidth - 30, 24, t, isPicked);
+                        currentY += 28;
+                    });
+                }
+                currentY += 10;
+            } else {
+                currentY += 40;
             }
-        });
+        }
+
+        currentY += 20;
+
+        // 패시브 스킬 섹션 (3개)
+        ctx.fillStyle = UI.colors.passive;
+        ctx.fillText("패시브 스킬 (최대 3)", x + 15, currentY);
+        currentY += 15;
+
+        for (let sIdx = 0; sIdx < 3; sIdx++) {
+            const skill = slot.passives[sIdx];
+            drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill ? skill.name : "스킬 선택", "#333", true);
+            
+            if (skill) {
+                currentY += 38;
+                const skillInfo = passivePool.find(p => p.skillName === skill.name);
+                if (skillInfo) {
+                    skillInfo.traits.forEach((t, tIdx) => {
+                        const isPicked = skill.trait === tIdx;
+                        drawTraitButton(x + 15, currentY, UI.slotWidth - 30, 24, t, isPicked);
+                        currentY += 28;
+                    });
+                }
+                currentY += 10;
+            } else {
+                currentY += 40;
+            }
+        }
+    }
+}
+
+function drawDropdownButton(x, y, w, h, text, color, isSmall = false) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 6);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = isSmall ? "12px Arial" : "bold 15px Arial";
+    ctx.textAlign = "left";
+    const displayRepo = text.length > 15 ? text.substring(0, 14) + ".." : text;
+    ctx.fillText(displayRepo, x + 12, y + h / 2 + 5);
+    
+    // 화살표 아이콘
+    ctx.beginPath();
+    ctx.moveTo(x + w - 20, y + h / 2 - 2);
+    ctx.lineTo(x + w - 15, y + h / 2 + 3);
+    ctx.lineTo(x + w - 10, y + h / 2 - 2);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+}
+
+function drawTraitButton(x, y, w, h, text, isPicked) {
+    ctx.fillStyle = isPicked ? UI.colors.traitSelected : "#1a1a1a";
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 4);
+    ctx.fill();
+    
+    ctx.strokeStyle = isPicked ? "transparent" : "#444";
+    ctx.stroke();
+
+    ctx.fillStyle = isPicked ? "#000" : UI.colors.textDim;
+    ctx.font = "10px Arial";
+    const shortText = text.length > 24 ? text.substring(0, 22) + ".." : text;
+    ctx.fillText(shortText, x + 8, y + h / 2 + 4);
+}
+
+function drawDropdown() {
+    const { x, y, width, items } = activeDropdown;
+    const itemHeight = 35;
+    const height = items.length * itemHeight;
+
+    // 드롭다운 그림자 및 배경
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.fillStyle = UI.colors.dropdown;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, 8);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    items.forEach((item, i) => {
+        const iy = y + i * itemHeight;
+        
+        ctx.fillStyle = "#fff";
+        ctx.font = "13px Arial";
+        ctx.fillText(item, x + 15, iy + 22);
+        
+        if (i < items.length - 1) {
+            ctx.strokeStyle = "#444";
+            ctx.beginPath();
+            ctx.moveTo(x, iy + itemHeight);
+            ctx.lineTo(x + width, iy + itemHeight);
+            ctx.stroke();
+        }
     });
 }
 
-// --- 클릭 인터랙션 ---
+// --- 클릭 핸들러 ---
 canvas.addEventListener('click', (e) => {
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
 
-    // 1. 사이드바 클릭 (몬스터 추가/제거)
-    if (x < UI.sidebarWidth) {
-        const uniqueMonsters = [...new Set(monsterData.map(d => d.monsterName))];
-        uniqueMonsters.forEach((m, i) => {
-            const my = 70 + (i * 45);
-            if (y > my && y < my + 35) toggleMonster(m);
-        });
-    } 
-    // 2. 상세 카드 클릭
-    else {
-        selections.forEach((sel, idx) => {
-            const cardX = UI.sidebarWidth + UI.margin + (idx * (UI.cardWidth + UI.margin));
-            if (x > cardX && x < cardX + UI.cardWidth) {
-                handleCardClick(sel, x - cardX, y);
-            }
-        });
+    // 드롭다운 열려있을 때 처리
+    if (activeDropdown) {
+        const { x, y, width, items, slotIdx, type, skillIdx } = activeDropdown;
+        const itemHeight = 35;
+        if (mx >= x && mx <= x + width && my >= y && my <= y + items.length * itemHeight) {
+            const clickedIdx = Math.floor((my - y) / itemHeight);
+            const selectedValue = items[clickedIdx];
+            handleDropdownSelect(slotIdx, type, selectedValue, skillIdx);
+            activeDropdown = null;
+            render();
+            return;
+        }
+        activeDropdown = null;
+        render();
+        return;
     }
+
+    // 슬롯 요소 클릭 감지
+    const startX = (canvas.width - (UI.slotWidth * 5 + UI.margin * 4)) / 2;
+    slots.forEach((slot, i) => {
+        const x = startX + i * (UI.slotWidth + UI.margin);
+        const y = 30;
+
+        // 몬스터 선택 클릭
+        if (mx > x + 10 && mx < x + UI.slotWidth - 10 && my > y + 60 && my < y + 100) {
+            activeDropdown = { 
+                slotIdx: i, type: 'monster', items: monstersList, 
+                x: mx, y: my, width: 180 
+            };
+        }
+
+        if (slot.name) {
+            let currentY = y + 135;
+            const monsterSkills = monsterData.filter(d => d.monsterName === slot.name);
+            
+            // 액티브 클릭 영역
+            for(let sIdx = 0; sIdx < 3; sIdx++) {
+                if (mx > x + 10 && mx < x + UI.slotWidth - 10 && my > currentY && my < currentY + 32) {
+                    const actives = monsterSkills.filter(s => s.type === '액티브').map(s => s.skillName);
+                    activeDropdown = { 
+                        slotIdx: i, type: 'active', items: actives, 
+                        x: mx, y: my, width: 180, skillIdx: sIdx 
+                    };
+                }
+                
+                const skill = slot.actives[sIdx];
+                if (skill) {
+                    currentY += 38;
+                    const skillInfo = monsterSkills.find(p => p.skillName === skill.name && p.type === '액티브');
+                    skillInfo?.traits.forEach((t, tIdx) => {
+                        if (mx > x + 15 && mx < x + UI.slotWidth - 15 && my > currentY && my < currentY + 24) {
+                            toggleTrait(i, 'active', sIdx, tIdx);
+                        }
+                        currentY += 28;
+                    });
+                    currentY += 10;
+                } else {
+                    currentY += 40;
+                }
+            }
+
+            currentY += 35;
+
+            // 패시브 클릭 영역
+            for(let sIdx = 0; sIdx < 3; sIdx++) {
+                if (mx > x + 10 && mx < x + UI.slotWidth - 10 && my > currentY && my < currentY + 32) {
+                    const passives = monsterSkills.filter(s => s.type === '패시브').map(s => s.skillName);
+                    activeDropdown = { 
+                        slotIdx: i, type: 'passive', items: passives, 
+                        x: mx, y: my, width: 180, skillIdx: sIdx 
+                    };
+                }
+
+                const skill = slot.passives[sIdx];
+                if (skill) {
+                    currentY += 38;
+                    const skillInfo = monsterSkills.find(p => p.skillName === skill.name && p.type === '패시브');
+                    skillInfo?.traits.forEach((t, tIdx) => {
+                        if (mx > x + 15 && mx < x + UI.slotWidth - 15 && my > currentY && my < currentY + 24) {
+                            toggleTrait(i, 'passive', sIdx, tIdx);
+                        }
+                        currentY += 28;
+                    });
+                    currentY += 10;
+                } else {
+                    currentY += 40;
+                }
+            }
+        }
+    });
     render();
 });
 
-function toggleMonster(name) {
-    const idx = selections.findIndex(s => s.name === name);
-    if (idx > -1) selections.splice(idx, 1);
-    else if (selections.length < 5) selections.push({ name, actives: [], passives: [] });
-}
-
-function handleCardClick(sel, localX, globalY) {
-    const allSkills = monsterData.filter(d => d.monsterName === sel.name);
-    let currentY = 80;
-
-    allSkills.forEach(skill => {
-        // 스킬 헤더 클릭
-        if (globalY > currentY && globalY < currentY + 28) {
-            toggleSkill(sel, skill);
-        }
-
-        const isSelected = (skill.type === '액티브') 
-            ? sel.actives.some(a => a.name === skill.skillName)
-            : sel.passives.some(p => p.name === skill.skillName);
-
-        if (isSelected) {
-            currentY += 35;
-            skill.traits.forEach((trait, tIdx) => {
-                if (globalY > currentY && globalY < currentY + 22) {
-                    toggleTrait(sel, skill, tIdx);
-                }
-                currentY += 26;
-            });
-            currentY += 10;
-        } else {
-            currentY += 35;
-        }
-    });
-}
-
-function toggleSkill(sel, skill) {
-    if (skill.type === '액티브') {
-        const idx = sel.actives.findIndex(a => a.name === skill.skillName);
-        if (idx > -1) sel.actives.splice(idx, 1);
-        else if (sel.actives.length < 3) sel.actives.push({ name: skill.skillName, traits: [] });
-    } else {
-        const idx = sel.passives.findIndex(p => p.name === skill.skillName);
-        if (idx > -1) sel.passives.splice(idx, 1);
-        else if (sel.passives.length < 3) sel.passives.push({ name: skill.skillName, trait: null });
+function handleDropdownSelect(slotIdx, type, value, skillIdx) {
+    if (type === 'monster') {
+        slots[slotIdx].name = value;
+        slots[slotIdx].actives = [];
+        slots[slotIdx].passives = [];
+    } else if (type === 'active') {
+        slots[slotIdx].actives[skillIdx] = { name: value, traits: [] };
+    } else if (type === 'passive') {
+        slots[slotIdx].passives[skillIdx] = { name: value, trait: null };
     }
 }
 
-function toggleTrait(sel, skill, tIdx) {
-    if (skill.type === '액티브') {
-        const sObj = sel.actives.find(a => a.name === skill.skillName);
-        const has = sObj.traits.indexOf(tIdx);
-        if (has > -1) sObj.traits.splice(has, 1);
-        else if (sObj.traits.length < 3) sObj.traits.push(tIdx);
+function toggleTrait(slotIdx, type, skillIdx, traitIdx) {
+    if (type === 'active') {
+        const traits = slots[slotIdx].actives[skillIdx].traits;
+        const foundIdx = traits.indexOf(traitIdx);
+        if (foundIdx > -1) traits.splice(foundIdx, 1);
+        else if (traits.length < 3) traits.push(traitIdx);
     } else {
-        const sObj = sel.passives.find(p => p.name === skill.skillName);
-        sObj.trait = (sObj.trait === tIdx) ? null : tIdx;
+        const current = slots[slotIdx].passives[skillIdx].trait;
+        slots[slotIdx].passives[skillIdx].trait = (current === traitIdx) ? null : traitIdx;
     }
 }
 
-// --- 데이터 영속성 ---
+// --- 시스템 기능 ---
 function saveData() {
-    localStorage.setItem('monster_build_save', JSON.stringify(selections));
-    showToast("로컬 스토리지에 저장 완료!");
+    localStorage.setItem('monster_slots_save', JSON.stringify(slots));
+    showToast("브라우저에 설정이 저장되었습니다.");
 }
 
 function loadData() {
-    const saved = localStorage.getItem('monster_build_save');
+    const saved = localStorage.getItem('monster_slots_save');
     if (saved) {
-        selections = JSON.parse(saved);
+        slots = JSON.parse(saved);
         render();
-        showToast("이전 데이터를 불러왔습니다.");
+        showToast("저장된 설정을 불러왔습니다.");
     } else {
         showToast("저장된 데이터가 없습니다.");
     }
 }
 
 function resetAll() {
-    if(confirm("모든 선택을 초기화할까요?")) {
-        selections = [];
+    if(confirm("모든 슬롯을 초기화할까요?")) {
+        slots = Array.from({ length: 5 }, () => ({ name: null, actives: [], passives: [] }));
         render();
     }
 }
@@ -314,14 +409,12 @@ function resetAll() {
 function showToast(msg) {
     const toast = document.createElement('div');
     toast.innerText = msg;
-    toast.style = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 20px; border-radius:20px; z-index:1000;";
+    toast.style = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 20px; border-radius:20px; z-index:1000; font-size:14px;";
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2000);
 }
 
-// 시작
 init();
 </script>
-
 </body>
 </html>
