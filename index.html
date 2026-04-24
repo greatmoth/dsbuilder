@@ -180,7 +180,6 @@ function drawSlot(slot, idx, x, y) {
         if (skill.name) {
             const skillInfo = activePool.find(p => p.skillName === skill.name);
             if (skillInfo) {
-                // 특성 묶음 박스 배경 그리기 (미리 계산)
                 const traitsData = [];
                 let totalTraitsHeight = 0;
                 for(let tPos = 0; tPos < 3; tPos++) {
@@ -192,7 +191,6 @@ function drawSlot(slot, idx, x, y) {
                     totalTraitsHeight += h;
                 }
 
-                // 묶음 배경
                 ctx.fillStyle = UI.colors.traitBg;
                 ctx.beginPath();
                 ctx.roundRect(x + 15, currentY, UI.slotWidth - 30, totalTraitsHeight, 6);
@@ -201,17 +199,14 @@ function drawSlot(slot, idx, x, y) {
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                // 개별 특성 텍스트 및 구분선
                 let traitY = currentY;
                 traitsData.forEach((td, tdIdx) => {
-                    // 텍스트 출력
                     ctx.fillStyle = (td.tName === "특성 선택") ? UI.colors.textDim : UI.colors.trait;
                     ctx.font = "11px Arial";
                     td.lines.forEach((line, li) => {
                         ctx.fillText(line, x + 25, traitY + 8 + 11 + (li * 15) - 2);
                     });
 
-                    // 화살표
                     ctx.beginPath();
                     ctx.moveTo(x + UI.slotWidth - 30, traitY + td.h/2 - 2);
                     ctx.lineTo(x + UI.slotWidth - 25, traitY + td.h/2 + 3);
@@ -221,7 +216,6 @@ function drawSlot(slot, idx, x, y) {
                     ctx.stroke();
 
                     traitY += td.h;
-                    // 구분선 (마지막 제외)
                     if(tdIdx < 2) {
                         ctx.beginPath();
                         ctx.moveTo(x + 20, traitY);
@@ -251,8 +245,10 @@ function drawSlot(slot, idx, x, y) {
         if (skill.name) {
             const skillInfo = passivePool.find(p => p.skillName === skill.name);
             if (skillInfo) {
-                const tName = (skill.trait !== null && skill.trait !== undefined) ? skillInfo.traits[skill.trait] : "특성 선택";
-                const tHeight = drawWrappedButton(x + 15, currentY, UI.slotWidth - 30, tName, "#1a1a1a", 11, false, true, true);
+                // 패시브 특성 텍스트 표시 문제 해결을 위해 drawWrappedButton 대신 직접 렌더링하거나 명시적으로 색상 지정 확인
+                const tIdx = skill.trait;
+                const tName = (tIdx !== null && tIdx !== undefined) ? skillInfo.traits[tIdx] : "특성 선택";
+                const tHeight = drawWrappedButton(x + 15, currentY, UI.slotWidth - 30, tName, UI.colors.trait, 11, false, true, true);
                 currentY += tHeight + 4;
             }
         }
@@ -267,16 +263,23 @@ function drawWrappedButton(x, y, w, text, color, fontSize, isBold, showArrow, is
     const lineHeight = fontSize + 4;
     const rectHeight = Math.max(28, lines.length * lineHeight + padding * 2);
 
-    if (!showArrow || isTrait) {
-        ctx.fillStyle = isTrait ? "#1a1a1a" : "transparent";
+    if (isTrait) {
+        ctx.fillStyle = UI.colors.traitBg;
         ctx.beginPath();
         ctx.roundRect(x, y, w, rectHeight, 6);
         ctx.fill();
-        if(isTrait && text !== "특성 선택") {
+        
+        if (text !== "특성 선택") {
             ctx.strokeStyle = UI.colors.trait;
             ctx.lineWidth = 1;
             ctx.stroke();
+        } else {
+            ctx.strokeStyle = "#333";
+            ctx.lineWidth = 1;
+            ctx.stroke();
         }
+    } else if (!showArrow) {
+        ctx.fillStyle = "transparent";
     }
 
     ctx.fillStyle = (text === "특성 선택" || text === "스킬 선택") ? UI.colors.textDim : color;
@@ -419,7 +422,8 @@ canvas.addEventListener('click', (e) => {
                 if (skill.name) {
                     const skillInfo = monsterSkills.find(p => p.skillName === skill.name);
                     if (skillInfo) {
-                        const tText = (skill.trait !== null && skill.trait !== undefined) ? skillInfo.traits[skill.trait] : "특성 선택";
+                        const tIdx = skill.trait;
+                        const tText = (tIdx !== null && tIdx !== undefined) ? skillInfo.traits[tIdx] : "특성 선택";
                         const tLines = wrapText(tText, UI.slotWidth - 45, 11);
                         const tHeight = Math.max(28, tLines.length * 15 + 16);
                         if (mx > x + 15 && mx < x + UI.slotWidth - 15 && my > currentY && my < currentY + tHeight) {
