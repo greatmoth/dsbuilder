@@ -245,7 +245,6 @@ function drawSlot(slot, idx, x, y) {
         if (skill.name) {
             const skillInfo = passivePool.find(p => p.skillName === skill.name);
             if (skillInfo) {
-                // 패시브 특성 텍스트 표시 문제 해결을 위해 drawWrappedButton 대신 직접 렌더링하거나 명시적으로 색상 지정 확인
                 const tIdx = skill.trait;
                 const tName = (tIdx !== null && tIdx !== undefined) ? skillInfo.traits[tIdx] : "특성 선택";
                 const tHeight = drawWrappedButton(x + 15, currentY, UI.slotWidth - 30, tName, UI.colors.trait, 11, false, true, true);
@@ -320,26 +319,64 @@ function drawDropdownButton(x, y, w, h, text, color, isSmall, isTrait, isGhost) 
 
 function drawDropdown() {
     const { x, y, width, items } = activeDropdown;
-    const itemHeight = 35;
-    const maxVisibleItems = 12;
-    const height = Math.min(items.length * itemHeight, maxVisibleItems * itemHeight);
+    const padding = 10;
+    const fontSize = 12;
+    const lineHeight = 16;
+    const maxVisibleHeight = 400;
+
+    // 항목별 높이 계산
+    const itemData = items.map(item => {
+        const label = item.name !== undefined ? item.name : item;
+        const lines = wrapText(label, width - 24, fontSize);
+        const height = lines.length * lineHeight + 18;
+        return { label, lines, height };
+    });
+
+    const totalHeight = itemData.reduce((acc, cur) => acc + cur.height, 0);
+    const drawHeight = Math.min(totalHeight, maxVisibleHeight);
 
     ctx.save();
     ctx.shadowBlur = 15;
     ctx.shadowColor = "rgba(0,0,0,0.5)";
     ctx.fillStyle = UI.colors.dropdown;
     ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 8);
+    ctx.roundRect(x, y, width, drawHeight, 8);
     ctx.fill();
     ctx.restore();
 
-    items.slice(0, maxVisibleItems).forEach((item, i) => {
-        const iy = y + i * itemHeight;
+    // 스크롤 영역 클리핑 (간단하게 상위 항목만 표시)
+    let currentItemY = y;
+    for (let i = 0; i < itemData.length; i++) {
+        const item = itemData[i];
+        if (currentItemY + item.height > y + drawHeight) break;
+
+        // 항목 텍스트
         ctx.fillStyle = "#fff";
-        ctx.font = "12px Arial";
-        const label = item.name !== undefined ? item.name : item;
-        ctx.fillText(label, x + 12, iy + 22);
-    });
+        ctx.font = `${fontSize}px Arial`;
+        item.lines.forEach((line, lineIdx) => {
+            ctx.fillText(line, x + 12, currentItemY + 18 + (lineIdx * lineHeight));
+        });
+
+        currentItemY += item.height;
+
+        // 구분선
+        if (i < itemData.length - 1 && currentItemY < y + drawHeight) {
+            ctx.strokeStyle = "#444";
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(x + 5, currentItemY);
+            ctx.lineTo(x + width - 5, currentItemY);
+            ctx.stroke();
+        }
+        
+        // 클릭 영역 정보를 위해 itemData에 y좌표 저장
+        item.yStart = currentItemY - item.height;
+        item.yEnd = currentItemY;
+    }
+    
+    // 드롭다운 객체에 레이아웃 정보 업데이트 (클릭 핸들링용)
+    activeDropdown.layout = itemData;
+    activeDropdown.actualHeight = drawHeight;
 }
 
 canvas.addEventListener('click', (e) => {
@@ -348,15 +385,14 @@ canvas.addEventListener('click', (e) => {
     const my = e.clientY - rect.top;
 
     if (activeDropdown) {
-        const { x, y, width, items, slotIdx, type, skillIdx, traitSlotIdx } = activeDropdown;
-        const itemHeight = 35;
-        const maxVisibleItems = 12;
-        const height = Math.min(items.length * itemHeight, maxVisibleItems * itemHeight);
+        const { x, y, width, items, layout, actualHeight } = activeDropdown;
 
-        if (mx >= x && mx <= x + width && my >= y && my <= y + height) {
-            const clickedIdx = Math.floor((my - y) / itemHeight);
-            if (items[clickedIdx]) {
-                handleDropdownSelect(slotIdx, type, items[clickedIdx], skillIdx, traitSlotIdx);
+        if (mx >= x && mx <= x + width && my >= y && my <= y + actualHeight) {
+            // 레이아웃 정보를 바탕으로 어떤 항목이 클릭되었는지 확인
+            const clickedItem = layout.find(item => my >= item.yStart && my <= item.yEnd);
+            if (clickedItem) {
+                const originalItem = items[layout.indexOf(clickedItem)];
+                handleDropdownSelect(activeDropdown.slotIdx, activeDropdown.type, originalItem, activeDropdown.skillIdx, activeDropdown.traitSlotIdx);
             }
         }
         activeDropdown = null;
