@@ -43,13 +43,14 @@ let slots = Array.from({ length: 5 }, () => ({
 }));
 
 // 드롭다운 상태
-let activeDropdown = null; // { slotIdx, type, items, x, y, width, skillIdx, traitSlotIdx }
+let activeDropdown = null; 
 
 const UI = {
     canvasWidth: 1300,
-    canvasHeight: 950,
+    canvasHeight: 980,
     slotWidth: 240,
     margin: 15,
+    selectorHeight: 80,
     colors: {
         bg: "#181818",
         slot: "#252525",
@@ -75,7 +76,7 @@ async function init() {
         const csvText = await response.text();
         parseCSV(csvText);
         
-        monstersList = [...new Set(monsterData.map(d => d.monsterName))];
+        monstersList = [...new Set(monsterData.map(d => d.monsterName))].sort();
         loading.style.display = 'none';
         render();
     } catch (err) {
@@ -104,9 +105,20 @@ function render() {
 
     const startX = (canvas.width - (UI.slotWidth * 5 + UI.margin * 4)) / 2;
 
+    // 1. 상단 몬스터 선택 영역 바 배경
+    ctx.fillStyle = "#1f1f1f";
+    ctx.beginPath();
+    ctx.roundRect(startX - 10, 20, (UI.slotWidth * 5 + UI.margin * 4) + 20, 70, 10);
+    ctx.fill();
+
     slots.forEach((slot, i) => {
         const x = startX + i * (UI.slotWidth + UI.margin);
-        drawSlot(slot, i, x, 30);
+        
+        // 상단 몬스터 셀렉터 버튼
+        drawDropdownButton(x, 35, UI.slotWidth, 40, slot.name || "몬스터 선택", UI.colors.primary);
+
+        // 하단 상세 슬롯
+        drawSlot(slot, i, x, 110);
     });
 
     if (activeDropdown) {
@@ -117,68 +129,77 @@ function render() {
 function drawSlot(slot, idx, x, y) {
     ctx.fillStyle = UI.colors.slot;
     ctx.beginPath();
-    ctx.roundRect(x, y, UI.slotWidth, canvas.height - 60, 12);
+    ctx.roundRect(x, y, UI.slotWidth, canvas.height - y - 30, 12);
     ctx.fill();
 
-    // 몬스터 선택
-    drawDropdownButton(x + 10, y + 20, UI.slotWidth - 20, 40, slot.name || "몬스터 선택", UI.colors.primary);
+    if (!slot.name) {
+        ctx.fillStyle = "#333";
+        ctx.font = "italic 13px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("몬스터를 먼저 선택해주세요", x + UI.slotWidth/2, y + 100);
+        ctx.textAlign = "left";
+        return;
+    }
 
-    if (slot.name) {
-        let currentY = y + 80;
-        const monsterSkills = monsterData.filter(d => d.monsterName === slot.name);
-        const activePool = monsterSkills.filter(s => s.type === '액티브');
-        const passivePool = monsterSkills.filter(s => s.type === '패시브');
+    // 몬스터 이름 헤더
+    ctx.fillStyle = UI.colors.primary;
+    ctx.font = "bold 16px Arial";
+    ctx.fillText(slot.name, x + 15, y + 30);
+    
+    let currentY = y + 60;
+    const monsterSkills = monsterData.filter(d => d.monsterName === slot.name);
+    const activePool = monsterSkills.filter(s => s.type === '액티브');
+    const passivePool = monsterSkills.filter(s => s.type === '패시브');
 
-        // 액티브 스킬 섹션
-        ctx.fillStyle = UI.colors.active;
-        ctx.font = "bold 14px Arial";
-        ctx.fillText("액티브 스킬", x + 15, currentY);
-        currentY += 15;
+    // 액티브 스킬 섹션
+    ctx.fillStyle = UI.colors.active;
+    ctx.font = "bold 13px Arial";
+    ctx.fillText("액티브 스킬", x + 15, currentY);
+    currentY += 15;
 
-        slot.actives.forEach((skill, sIdx) => {
-            drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill.name || "스킬 선택", "#333", true);
-            currentY += 38;
-            
-            if (skill.name) {
-                const skillInfo = activePool.find(p => p.skillName === skill.name);
-                if (skillInfo) {
-                    for(let tPos = 0; tPos < 3; tPos++) {
-                        const tIdx = skill.traits[tPos];
-                        const tName = (tIdx !== undefined && tIdx !== null) ? skillInfo.traits[tIdx] : "특성 선택";
-                        drawDropdownButton(x + 15, currentY, UI.slotWidth - 30, 26, tName, "#1a1a1a", true, true);
-                        currentY += 30;
-                    }
-                }
-                currentY += 5;
-            } else {
-                currentY += 10;
-            }
-        });
-
-        currentY += 15;
-
-        // 패시브 스킬 섹션
-        ctx.fillStyle = UI.colors.passive;
-        ctx.fillText("패시브 스킬", x + 15, currentY);
-        currentY += 15;
-
-        slot.passives.forEach((skill, sIdx) => {
-            drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill.name || "스킬 선택", "#333", true);
-            currentY += 38;
-            
-            if (skill.name) {
-                const skillInfo = passivePool.find(p => p.skillName === skill.name);
-                if (skillInfo) {
-                    const tName = (skill.trait !== null) ? skillInfo.traits[skill.trait] : "특성 선택";
+    slot.actives.forEach((skill, sIdx) => {
+        drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill.name || "스킬 선택", "#333", true);
+        currentY += 38;
+        
+        if (skill.name) {
+            const skillInfo = activePool.find(p => p.skillName === skill.name);
+            if (skillInfo) {
+                for(let tPos = 0; tPos < 3; tPos++) {
+                    const tIdx = skill.traits[tPos];
+                    const tName = (tIdx !== undefined && tIdx !== null) ? skillInfo.traits[tIdx] : "특성 선택";
                     drawDropdownButton(x + 15, currentY, UI.slotWidth - 30, 26, tName, "#1a1a1a", true, true);
                     currentY += 30;
                 }
-                currentY += 5;
-            } else {
-                currentY += 10;
             }
-        });
-    }
+            currentY += 5;
+        } else {
+            currentY += 10;
+        }
+    });
+
+    currentY += 15;
+
+    // 패시브 스킬 섹션
+    ctx.fillStyle = UI.colors.passive;
+    ctx.fillText("패시브 스킬", x + 15, currentY);
+    currentY += 15;
+
+    slot.passives.forEach((skill, sIdx) => {
+        drawDropdownButton(x + 10, currentY, UI.slotWidth - 20, 32, skill.name || "스킬 선택", "#333", true);
+        currentY += 38;
+        
+        if (skill.name) {
+            const skillInfo = passivePool.find(p => p.skillName === skill.name);
+            if (skillInfo) {
+                const tName = (skill.trait !== null) ? skillInfo.traits[skill.trait] : "특성 선택";
+                drawDropdownButton(x + 15, currentY, UI.slotWidth - 30, 26, tName, "#1a1a1a", true, true);
+                currentY += 30;
+            }
+            currentY += 5;
+        } else {
+            currentY += 10;
+        }
+    });
 }
 
 function drawDropdownButton(x, y, w, h, text, color, isSmall = false, isTrait = false) {
@@ -194,12 +215,11 @@ function drawDropdownButton(x, y, w, h, text, color, isSmall = false, isTrait = 
     }
 
     ctx.fillStyle = (isTrait && text === "특성 선택") ? UI.colors.textDim : "#fff";
-    ctx.font = isSmall ? "11px Arial" : "bold 15px Arial";
+    ctx.font = isSmall ? "11px Arial" : "bold 14px Arial";
     ctx.textAlign = "left";
-    const displayRepo = text.length > 18 ? text.substring(0, 17) + ".." : text;
+    const displayRepo = text.length > 20 ? text.substring(0, 18) + ".." : text;
     ctx.fillText(displayRepo, x + 10, y + h / 2 + 4);
     
-    // 화살표
     ctx.beginPath();
     ctx.moveTo(x + w - 15, y + h / 2 - 2);
     ctx.lineTo(x + w - 10, y + h / 2 + 3);
@@ -212,7 +232,8 @@ function drawDropdownButton(x, y, w, h, text, color, isSmall = false, isTrait = 
 function drawDropdown() {
     const { x, y, width, items } = activeDropdown;
     const itemHeight = 30;
-    const height = Math.min(items.length * itemHeight, 400);
+    const maxVisibleItems = 15;
+    const height = Math.min(items.length * itemHeight, maxVisibleItems * itemHeight);
 
     ctx.save();
     ctx.shadowBlur = 15;
@@ -224,13 +245,13 @@ function drawDropdown() {
     ctx.restore();
 
     ctx.save();
-    // 아이템이 많을 경우를 대비한 클리핑 처리 (간단하게 구현)
-    items.slice(0, 13).forEach((item, i) => {
+    // 목록이 너무 길면 잘라냄
+    items.slice(0, maxVisibleItems).forEach((item, i) => {
         const iy = y + i * itemHeight;
         ctx.fillStyle = "#fff";
         ctx.font = "12px Arial";
         const label = item.name !== undefined ? item.name : item;
-        const displayLabel = label.length > 25 ? label.substring(0, 23) + ".." : label;
+        const displayLabel = label.length > 28 ? label.substring(0, 26) + ".." : label;
         ctx.fillText(displayLabel, x + 12, iy + 20);
         
         if (i < items.length - 1) {
@@ -253,7 +274,8 @@ canvas.addEventListener('click', (e) => {
     if (activeDropdown) {
         const { x, y, width, items, slotIdx, type, skillIdx, traitSlotIdx } = activeDropdown;
         const itemHeight = 30;
-        const height = Math.min(items.length * itemHeight, 400);
+        const maxVisibleItems = 15;
+        const height = Math.min(items.length * itemHeight, maxVisibleItems * itemHeight);
 
         if (mx >= x && mx <= x + width && my >= y && my <= y + height) {
             const clickedIdx = Math.floor((my - y) / itemHeight);
@@ -271,17 +293,18 @@ canvas.addEventListener('click', (e) => {
     const startX = (canvas.width - (UI.slotWidth * 5 + UI.margin * 4)) / 2;
     slots.forEach((slot, i) => {
         const x = startX + i * (UI.slotWidth + UI.margin);
-        const y = 30;
 
-        // 몬스터 선택
-        if (mx > x + 10 && mx < x + UI.slotWidth - 10 && my > y + 20 && my < y + 60) {
+        // 상단 몬스터 선택기 클릭
+        if (mx > x && mx < x + UI.slotWidth && my > 35 && my < 75) {
             const usedMonsters = slots.map(s => s.name).filter(n => n && n !== slot.name);
             const filteredMonsters = monstersList.filter(m => !usedMonsters.includes(m));
-            activeDropdown = { slotIdx: i, type: 'monster', items: filteredMonsters, x: mx, y: my, width: 180 };
+            // 드롭다운 위치 보정 (화면 아래로 나오게)
+            activeDropdown = { slotIdx: i, type: 'monster', items: filteredMonsters, x: mx, y: 75, width: 180 };
         }
 
         if (slot.name) {
-            let currentY = y + 95;
+            const y = 110;
+            let currentY = y + 75;
             const monsterSkills = monsterData.filter(d => d.monsterName === slot.name);
             
             // 액티브
@@ -336,9 +359,11 @@ canvas.addEventListener('click', (e) => {
 
 function handleDropdownSelect(slotIdx, type, value, skillIdx, traitSlotIdx) {
     if (type === 'monster') {
-        slots[slotIdx].name = value;
-        slots[slotIdx].actives = Array.from({ length: 3 }, () => ({ name: null, traits: [] }));
-        slots[slotIdx].passives = Array.from({ length: 3 }, () => ({ name: null, trait: null }));
+        if (slots[slotIdx].name !== value) {
+            slots[slotIdx].name = value;
+            slots[slotIdx].actives = Array.from({ length: 3 }, () => ({ name: null, traits: [] }));
+            slots[slotIdx].passives = Array.from({ length: 3 }, () => ({ name: null, trait: null }));
+        }
     } else if (type === 'active') {
         slots[slotIdx].actives[skillIdx] = { name: value, traits: [] };
     } else if (type === 'passive') {
@@ -351,16 +376,16 @@ function handleDropdownSelect(slotIdx, type, value, skillIdx, traitSlotIdx) {
 }
 
 function saveData() {
-    localStorage.setItem('monster_slots_v2', JSON.stringify(slots));
-    showToast("설정이 저장되었습니다.");
+    localStorage.setItem('monster_slots_v3', JSON.stringify(slots));
+    showToast("모든 슬롯 설정이 저장되었습니다.");
 }
 
 function loadData() {
-    const saved = localStorage.getItem('monster_slots_v2');
+    const saved = localStorage.getItem('monster_slots_v3');
     if (saved) {
         slots = JSON.parse(saved);
         render();
-        showToast("설정을 불러왔습니다.");
+        showToast("이전 설정을 불러왔습니다.");
     } else {
         showToast("저장된 데이터가 없습니다.");
     }
@@ -380,7 +405,7 @@ function resetAll() {
 function showToast(msg) {
     const toast = document.createElement('div');
     toast.innerText = msg;
-    toast.style = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 20px; border-radius:20px; z-index:1000; font-size:14px;";
+    toast.style = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:#fff; padding:10px 20px; border-radius:20px; z-index:1000; font-size:14px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);";
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2000);
 }
