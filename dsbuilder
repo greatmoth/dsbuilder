@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Monster Skill Builder</title>
+    <style>
+        body { background-color: #1a1a1a; color: white; display: flex; flex-direction: column; align-items: center; margin: 0; overflow: hidden; }
+        canvas { border: 2px solid #444; cursor: default; background: #252525; margin-top: 20px; }
+        #controls { margin-top: 10px; }
+        button { padding: 8px 16px; background: #4a90e2; border: none; color: white; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #357abd; }
+    </style>
+</head>
+<body>
+
+<div id="controls">
+    <button onclick="saveToLocalStorage()">현재 설정 저장하기</button>
+    <button onclick="loadFromLocalStorage()">불러오기</button>
+    <button onclick="resetSelection()" style="background:#e74c3c">초기화</button>
+</div>
+<canvas id="mainCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- 데이터 구조 ---
+let monsterData = [];
+let selections = []; // { name: '', actives: [{name:'', traits:[]}], passives: [{name:'', trait:''}] }
+
+// --- 설정 ---
+const CONFIG = {
+    maxMonsters: 5,
+    maxActives: 3,
+    maxPassives: 3,
+    activeTraitsToSelect: 3,
+    passiveTraitsToSelect: 1,
+    rowHeight: 40,
+    colWidth: 200
+};
+
+// --- 초기화 및 CSV 파싱 ---
+async function init() {
+    canvas.width = 1200;
+    canvas.height = 800;
+    
+    // CSV 데이터 로드 (실제 파일 경로 혹은 업로드된 텍스트 파싱)
+    const csvText = `다크페가수스,액티브,검은 깃털,재장전+35%/위력+15%,위력+35%/도탄+2회,발사속도-50%/투사체+2,탄창-8/투사체+1,도탄+3/도탄피해+5%
+다크페가수스,액티브,깃털 방패,투사체+1/회전+20%,위력+30%/지속+20%,충전+35%/회전+15%,투사체+2/크기+30%,위력+90%/회전-40%
+다크페가수스,패시브,바람의 가호,이속+10%,회피+5%,공격력+10%
+디아블로,액티브,공포의 불씨,위력+40%/범위+15%,재장전+40%/위력+10%,발사속도-50%/투사체+2,탄창+4/범위+30%,위력+45%/시간-0.6
+디아블로,패시브,공포의 군주,피해+15%,위압감+10%,치명타+5%`; // 예시 데이터
+
+    parseCSV(csvText);
+    render();
+}
+
+function parseCSV(text) {
+    const lines = text.split('\n');
+    lines.forEach(line => {
+        const cols = line.split(',');
+        if (cols.length < 3) return;
+        monsterData.push({
+            mName: cols[0].trim(),
+            type: cols[1].trim(),
+            sName: cols[2].trim(),
+            traits: cols.slice(3).filter(t => t.trim() !== '')
+        });
+    });
+}
+
+// --- 그리기 로직 ---
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = "#fff";
+    ctx.font = "16px Arial";
+    ctx.fillText("몬스터 선택 (최대 5개)", 20, 30);
+
+    // 1. 몬스터 목록 나열
+    const uniqueMonsters = [...new Set(monsterData.map(d => d.mName))];
+    uniqueMonsters.forEach((m, i) => {
+        const x = 20;
+        const y = 50 + (i * 35);
+        const isSelected = selections.find(s => s.name === m);
+        
+        ctx.fillStyle = isSelected ? "#4a90e2" : "#444";
+        ctx.fillRect(x, y, 150, 30);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(m, x + 10, y + 20);
+    });
+
+    // 2. 선택된 몬스터 상세 설정
+    selections.forEach((sel, idx) => {
+        const offsetX = 200 + (idx * 200);
+        ctx.fillStyle = "#333";
+        ctx.fillRect(offsetX - 5, 20, 190, 750);
+        
+        ctx.fillStyle = "#ffd700";
+        ctx.fillText(sel.name, offsetX, 45);
+
+        // 스킬 분류
+        const skills = monsterData.filter(d => d.mName === sel.name);
+        let currentY = 70;
+
+        skills.forEach(skill => {
+            const isSkillSelected = (skill.type === '액티브') 
+                ? sel.actives.some(a => a.name === skill.sName)
+                : sel.passives.some(p => p.name === skill.sName);
+
+            ctx.fillStyle = isSkillSelected ? "#2ecc71" : "#555";
+            ctx.fillRect(offsetX, currentY, 180, 25);
+            ctx.fillStyle = "#fff";
+            ctx.font = "12px Arial";
+            ctx.fillText(`[${skill.type[0]}] ${skill.sName}`, offsetX + 5, currentY + 17);
+            
+            // 특성 렌더링 (스킬이 선택된 경우에만)
+            if (isSkillSelected) {
+                skill.traits.forEach((trait, ti) => {
+                    const ty = currentY + 30 + (ti * 22);
+                    let isTraitPicked = false;
+                    if(skill.type === '액티브') {
+                        const sObj = sel.actives.find(a => a.name === skill.sName);
+                        isTraitPicked = sObj.traits.includes(ti);
+                    } else {
+                        const sObj = sel.passives.find(p => p.name === skill.sName);
+                        isTraitPicked = sObj.trait === ti;
+                    }
+
+                    ctx.fillStyle = isTraitPicked ? "#f1c40f" : "#333";
+                    ctx.strokeStyle = "#777";
+                    ctx.strokeRect(offsetX + 10, ty, 160, 20);
+                    ctx.fillRect(offsetX + 10, ty, 160, 20);
+                    ctx.fillStyle = isTraitPicked ? "#000" : "#bbb";
+                    ctx.fillText(trait.substring(0, 20), offsetX + 15, ty + 14);
+                });
+                currentY += (skill.traits.length * 22) + 40;
+            } else {
+                currentY += 35;
+            }
+        });
+    });
+}
+
+// --- 클릭 이벤트 핸들링 ---
+canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // 몬스터 선택 클릭
+    const uniqueMonsters = [...new Set(monsterData.map(d => d.mName))];
+    uniqueMonsters.forEach((m, i) => {
+        const x = 20, y = 50 + (i * 35);
+        if (mx > x && mx < x + 150 && my > y && my < y + 30) {
+            toggleMonster(m);
+        }
+    });
+
+    // 상세 스킬 및 특성 클릭
+    selections.forEach((sel, idx) => {
+        const offsetX = 200 + (idx * 200);
+        const skills = monsterData.filter(d => d.mName === sel.name);
+        let currentY = 70;
+
+        skills.forEach(skill => {
+            // 스킬 이름 클릭
+            if (mx > offsetX && mx < offsetX + 180 && my > currentY && my < currentY + 25) {
+                toggleSkill(sel, skill);
+            }
+
+            const isSkillSelected = (skill.type === '액티브') 
+                ? sel.actives.some(a => a.name === skill.sName)
+                : sel.passives.some(p => p.name === skill.sName);
+
+            if (isSkillSelected) {
+                skill.traits.forEach((trait, ti) => {
+                    const ty = currentY + 30 + (ti * 22);
+                    if (mx > offsetX + 10 && mx < offsetX + 170 && my > ty && my < ty + 20) {
+                        toggleTrait(sel, skill, ti);
+                    }
+                });
+                currentY += (skill.traits.length * 22) + 40;
+            } else {
+                currentY += 35;
+            }
+        });
+    });
+    render();
+});
+
+// --- 로직 함수들 ---
+function toggleMonster(mName) {
+    const index = selections.findIndex(s => s.name === mName);
+    if (index > -1) {
+        selections.splice(index, 1);
+    } else if (selections.length < CONFIG.maxMonsters) {
+        selections.push({ name: mName, actives: [], passives: [] });
+    }
+}
+
+function toggleSkill(sel, skill) {
+    if (skill.type === '액티브') {
+        const idx = sel.actives.findIndex(a => a.name === skill.sName);
+        if (idx > -1) sel.actives.splice(idx, 1);
+        else if (sel.actives.length < CONFIG.maxActives) sel.actives.push({ name: skill.sName, traits: [] });
+    } else {
+        const idx = sel.passives.findIndex(p => p.name === skill.sName);
+        if (idx > -1) sel.passives.splice(idx, 1);
+        else if (sel.passives.length < CONFIG.maxPassives) sel.passives.push({ name: skill.sName, trait: null });
+    }
+}
+
+function toggleTrait(sel, skill, traitIdx) {
+    if (skill.type === '액티브') {
+        const sObj = sel.actives.find(a => a.name === skill.sName);
+        const tIdx = sObj.traits.indexOf(traitIdx);
+        if (tIdx > -1) sObj.traits.splice(tIdx, 1);
+        else if (sObj.traits.length < CONFIG.activeTraitsToSelect) sObj.traits.push(traitIdx);
+    } else {
+        const sObj = sel.passives.find(p => p.name === skill.sName);
+        sObj.trait = (sObj.trait === traitIdx) ? null : traitIdx;
+    }
+}
+
+// --- 저장 기능 ---
+function saveToLocalStorage() {
+    localStorage.setItem('monsterBuild', JSON.stringify(selections));
+    alert('저장되었습니다!');
+}
+
+function loadFromLocalStorage() {
+    const saved = localStorage.getItem('monsterBuild');
+    if (saved) {
+        selections = JSON.parse(saved);
+        render();
+    }
+}
+
+function resetSelection() {
+    selections = [];
+    render();
+}
+
+init();
+</script>
+</body>
+</html>
